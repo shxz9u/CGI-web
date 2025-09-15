@@ -21,7 +21,7 @@ int main(void)
     if (strcmp(user, "admin") == 0 && strcmp(pass, "1234") == 0)
     {
         printf("<h1>로그인 성공</h1>");
-        printf("<a href=\"/cgi-bin/dashboard.cgi\">대시보드 이동</a>");
+        printf("<a href=\"../web-cgi/index.html\">대시보드 이동</a>");
     }
     else
     {

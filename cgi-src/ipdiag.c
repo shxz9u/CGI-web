@@ -145,7 +145,7 @@ int main(void)
     }
     printf("</div>");
 
-    printf("<p><a href='/index.html' class='btn btn-secondary mt-3'>대시보드로 돌아가기</a></p>");
+    printf("<p><a href='../web-cgi/index.html' class='btn btn-secondary mt-3'>대시보드로 돌아가기</a></p>");
     printf("</body></html>");
     return 0;
 }

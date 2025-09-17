@@ -1,0 +1,15 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Protected</title>
+<h2>보호 영역</h2>
+<pre id="me">확인 중...</pre>
+<a href="/cgi-bin/logout.cgi">로그아웃</a>
+<script>
+fetch('/cgi-bin/whoami.cgi', {credentials:'include'})
+  .then(r=>{
+    if(r.status===401) { location.href='/html/login.html'; return; }
+    return r.json();
+  })
+  .then(j=>{ if(j) document.getElementById('me').textContent = '안녕하세요, ' + j.user; })
+  .catch(()=> location.href='/html/login.html');
+</script>

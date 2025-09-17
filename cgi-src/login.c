@@ -1,32 +1,40 @@
-﻿#include <stdio.h>
-#include <stdlib.h>
+﻿#include "util.h"
+#include "session.h"
+#include <stdio.h>
 #include <string.h>
 
-int main(void)
-{
-    const char *cl = getenv("CONTENT_LENGTH");
-    int len = cl ? atoi(cl) : 0;
-    char buf[1024] = {0};
+// 데모용 사용자 검증(실서비스라면 해시된 비밀번호/DB 사용)
+static int verify_user(const char *id, const char *pw){
+    // 예시: admin / pass1234
+    return (strcmp(id, "admin")==0 && strcmp(pw, "pass1234")==0);
+}
 
-    if (len > 0 && len < sizeof(buf))
-    {
-        fread(buf, 1, len, stdin);
+int main(void){
+    char body[MAX_BODY]; 
+    read_post_body(body, sizeof(body));
+
+    char id[MAX_KV]={0}, pw[MAX_KV]={0};
+    parse_kv_from_body(body, "id", id, sizeof(id));
+    parse_kv_from_body(body, "pw", pw, sizeof(pw));
+
+    if(!verify_user(id, pw)){
+        print_http_header_html_no_cache();
+        printf("<html><body>로그인 실패<br><a href=\"/html/login.html\">뒤로</a></body></html>");
+        return 0;
     }
 
-    char user[128] = {0}, pass[128] = {0};
-    sscanf(buf, "username=%127[^&]&password=%127s", user, pass);
-
-    printf("Content-Type: text/html; charset=utf-8\r\n\r\n");
-
-    if (strcmp(user, "admin") == 0 && strcmp(pass, "1234") == 0)
-    {
-        printf("<h1>로그인 성공</h1>");
-        printf("<a href=\"../web-cgi/index.html\">대시보드 이동</a>");
+    char sid[65];
+    if(!session_create(id, sid, sizeof(sid))){
+        print_http_header_html_no_cache();
+        printf("<html><body>서버 오류</body></html>");
+        return 0;
     }
-    else
-    {
-        printf("<h1>로그인 실패</h1>");
-        printf("<a href=\"../web-cgi/login.html\">다시 시도</a>");
-    }
+
+    // 쿠키 설정: HttpOnly; SameSite=Lax; Path=/
+    printf("Status: 302 Found\r\n");
+    printf("Set-Cookie: %s=%s; Path=/; HttpOnly; SameSite=Lax\r\n", SESSION_COOKIE, sid);
+    // HTTPS면 ; Secure 추가
+    printf("Location: /html/protected.html\r\n");
+    printf("Cache-Control: no-store\r\n\r\n");
     return 0;
 }

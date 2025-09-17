@@ -1,21 +1,25 @@
 #ifndef SESSION_H
 #define SESSION_H
 
-#include <time.h>
+#include <stddef.h>
 
-#define SESS_DIR "../sessions"   // cgi-bin 기준에서 상대경로 조정 필요할 수 있음
-#define SESS_TTL 3600            // 1시간
+// 세션 저장 디렉토리(없으면 자동 생성)
+#ifndef SESSION_DIR
+#define SESSION_DIR "C:\\\\xampp\\\\tmp\\\\sessions"
+#endif
 
-// 세션 생성: 사용자명으로 세션 파일 만들고 세션ID 반환
-int session_create(const char *username, char *sid_out, size_t sid_len);
+// 세션 유효 시간(초)
+#ifndef SESSION_TTL
+#define SESSION_TTL 3600
+#endif
 
-// 세션 검증: 유효하면 username_out에 사용자명 채움
-int session_validate(const char *sid, char *username_out, size_t ulen);
+// 세션 생성: user → sid(hex64)
+int session_create(const char *user, char *sid, size_t sidlen);
 
-// 세션 삭제
+// 검증: sid → user (성공 시 1, 실패 0)
+int session_validate(const char *sid, char *user_out, size_t user_len);
+
+// 파기: sid 삭제
 int session_destroy(const char *sid);
-
-// 디렉토리 생성(존재해도 OK)
-int ensure_session_dir(void);
 
 #endif

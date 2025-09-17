@@ -1,57 +1,97 @@
+#define _CRT_SECURE_NO_WARNINGS
 #include "util.h"
+#include <windows.h>
+#include <bcrypt.h>
 #include <stdio.h>
 #include <string.h>
-#include <stdlib.h>
 #include <ctype.h>
-#include <unistd.h>
-#include <fcntl.h>
 
-void print_http_header_html(void){
-    printf("Content-Type: text/html; charset=utf-8\r\n\r\n");
-}
-void print_http_header_html_no_cache(void){
-    printf("Content-Type: text/html; charset=utf-8\r\n");
-    printf("Cache-Control: no-store\r\n\r\n");
-}
-void print_http_header_json(void){
-    printf("Content-Type: application/json; charset=utf-8\r\n");
-    printf("Cache-Control: no-store\r\n\r\n");
+#pragma comment(lib, "bcrypt.lib")
+
+static void put_header_common_cache(const char *ctype, int nocache)
+{
+    printf("Content-Type: %s\r\n", ctype);
+    if (nocache)
+    {
+        printf("Cache-Control: no-store, no-cache, must-revalidate\r\n");
+        printf("Pragma: no-cache\r\n");
+        printf("Expires: 0\r\n");
+    }
+    printf("\r\n");
 }
 
-size_t read_post_body(char *buf, size_t buflen){
+void print_http_header_html(void) { put_header_common_cache("text/html; charset=utf-8", 0); }
+void print_http_header_html_no_cache(void) { put_header_common_cache("text/html; charset=utf-8", 1); }
+void print_http_header_json(void) { put_header_common_cache("application/json; charset=utf-8", 1); }
+
+size_t read_post_body(char *buf, size_t buflen)
+{
     buf[0] = '\0';
-    const char *len_str = getenv("CONTENT_LENGTH");
-    if(!len_str) return 0;
-    long n = strtol(len_str, NULL, 10);
-    if(n <= 0 || n >= (long)buflen) n = buflen - 1;
-    size_t r = fread(buf, 1, (size_t)n, stdin);
+    const char *cl = getenv("CONTENT_LENGTH");
+    if (!cl)
+        return 0;
+    size_t n = (size_t)atoi(cl);
+    if (n >= buflen)
+        n = buflen - 1;
+    size_t r = fread(buf, 1, n, stdin);
     buf[r] = '\0';
     return r;
 }
 
-void url_decode(char *s){
+static int hex2(int c)
+{
+    if ('0' <= c && c <= '9')
+        return c - '0';
+    if ('a' <= c && c <= 'f')
+        return c - 'a' + 10;
+    if ('A' <= c && c <= 'F')
+        return c - 'A' + 10;
+    return -1;
+}
+
+void url_decode(char *s)
+{
     char *o = s;
-    for(char *p=s; *p; p++){
-        if(*p == '+') { *o++ = ' '; }
-        else if(*p=='%' && isxdigit((unsigned char)p[1]) && isxdigit((unsigned char)p[2])){
-            char hx[3] = {p[1], p[2], 0};
-            *o++ = (char) strtol(hx, NULL, 16);
-            p += 2;
-        } else { *o++ = *p; }
+    for (; *s; s++)
+    {
+        if (*s == '+')
+        {
+            *o++ = ' ';
+        }
+        else if (*s == '%' && isxdigit((unsigned char)s[1]) && isxdigit((unsigned char)s[2]))
+        {
+            int hi = hex2(s[1]), lo = hex2(s[2]);
+            if (hi >= 0 && lo >= 0)
+            {
+                *o++ = (char)((hi << 4) | lo);
+                s += 2;
+            }
+        }
+        else
+        {
+            *o++ = *s;
+        }
     }
     *o = '\0';
 }
 
-int parse_kv_from_body(const char *body, const char *key, char *out, size_t outlen){
+int parse_kv_from_body(const char *body, const char *key, char *out, size_t outlen)
+{
+    // 단순 key= 형태 검색
     size_t klen = strlen(key);
     const char *p = body;
-    while(p && *p){
+    out[0] = '\0';
+    while (p && *p)
+    {
         const char *q = strstr(p, key);
-        if(!q) break;
-        if((q==body || q[-1]=='&') && q[klen]=='='){
+        if (!q)
+            break;
+        if ((q == p || q[-1] == '&') && q[klen] == '=')
+        {
             q += klen + 1;
-            size_t i=0;
-            while(q[i] && q[i] != '&' && i < outlen-1){
+            size_t i = 0;
+            while (q[i] && q[i] != '&' && i + 1 < outlen)
+            {
                 out[i] = q[i];
                 i++;
             }
@@ -59,61 +99,105 @@ int parse_kv_from_body(const char *body, const char *key, char *out, size_t outl
             url_decode(out);
             return 1;
         }
-        p = q + 1;
+        p = strchr(q + 1, '&');
+        if (p)
+            p++;
     }
     return 0;
 }
 
-int get_cookie(const char *cookie_header, const char *name, char *out, size_t outlen){
-    if(!cookie_header) return 0;
+int get_cookie(const char *cookie_header, const char *name, char *out, size_t outlen)
+{
+    // "name=value; name2=value2"
+    out[0] = '\0';
+    if (!cookie_header || !name)
+        return 0;
     size_t nlen = strlen(name);
     const char *p = cookie_header;
-    while(*p){
-        while(*p==' ') p++;
-        if(!strncmp(p, name, nlen) && p[nlen]=='='){
+    while (*p)
+    {
+        while (*p == ' ' || *p == ';')
+            p++;
+        if (strncmp(p, name, nlen) == 0 && p[nlen] == '=')
+        {
             p += nlen + 1;
-            size_t i=0;
-            while(p[i] && p[i] != ';' && i < outlen-1){
-                out[i] = p[i];
-                i++;
-            }
+            size_t i = 0;
+            while (*p && *p != ';' && i + 1 < outlen)
+                out[i++] = *p++;
             out[i] = '\0';
             return 1;
         }
         const char *sc = strchr(p, ';');
-        if(!sc) break;
+        if (!sc)
+            break;
         p = sc + 1;
     }
     return 0;
 }
 
-int gen_session_id(char *out, size_t outlen){
-    if(outlen < 65) return 0;
+int gen_session_id(char *out, size_t outlen)
+{
+    if (outlen < 65)
+        return 0; // 32바이트 → 64hex + NUL
     unsigned char rnd[32];
-    int fd = open("/dev/urandom", O_RDONLY);
-    if(fd < 0) return 0;
-    ssize_t r = read(fd, rnd, sizeof(rnd));
-    close(fd);
-    if(r != (ssize_t)sizeof(rnd)) return 0;
-    static const char *hx="0123456789abcdef";
-    for(int i=0;i<32;i++){
-        out[i*2]   = hx[(rnd[i]>>4)&0xF];
-        out[i*2+1] = hx[rnd[i]&0xF];
+    NTSTATUS st = BCryptGenRandom(NULL, rnd, sizeof(rnd), BCRYPT_USE_SYSTEM_PREFERRED_RNG);
+    if (st != 0)
+        return 0;
+    static const char *hex = "0123456789abcdef";
+    for (int i = 0; i < 32; i++)
+    {
+        out[i * 2] = hex[(rnd[i] >> 4) & 0xF];
+        out[i * 2 + 1] = hex[rnd[i] & 0xF];
     }
     out[64] = '\0';
     return 1;
 }
 
-void html_escape(const char *in, char *out, size_t outlen){
-    size_t j=0;
-    for(size_t i=0; in[i] && j+6 < outlen; i++){
-        char c = in[i];
-        if(c=='&'){ j += snprintf(out+j, outlen-j, "&amp;"); }
-        else if(c=='<'){ j += snprintf(out+j, outlen-j, "&lt;"); }
-        else if(c=='>'){ j += snprintf(out+j, outlen-j, "&gt;"); }
-        else if(c=='"'){ j += snprintf(out+j, outlen-j, "&quot;"); }
-        else if(c=='\''){ j += snprintf(out+j, outlen-j, "&#39;"); }
-        else { out[j++] = c; }
+void html_escape(const char *in, char *out, size_t outlen)
+{
+    size_t i = 0;
+    for (; *in && i + 6 < outlen; in++)
+    {
+        switch (*in)
+        {
+        case '&':
+            memcpy(out + i, "&amp;", 5);
+            i += 5;
+            break;
+        case '<':
+            memcpy(out + i, "&lt;", 4);
+            i += 4;
+            break;
+        case '>':
+            memcpy(out + i, "&gt;", 4);
+            i += 4;
+            break;
+        case '"':
+            memcpy(out + i, "&quot;", 6);
+            i += 6;
+            break;
+        case '\'':
+            memcpy(out + i, "&#39;", 5);
+            i += 5;
+            break;
+        default:
+            out[i++] = *in;
+        }
     }
-    out[j] = '\0';
+    out[i] = '\0';
 }
+
+void trim(char *s)
+{
+    if (!s)
+        return;
+    size_t n = strlen(s);
+    while (n && isspace((unsigned char)s[n - 1]))
+        s[--n] = '\0';
+    char *p = s;
+    while (*p && isspace((unsigned char)*p))
+        p++;
+    if (p != s)
+        memmove(s, p, strlen(p) + 1);
+}
+//

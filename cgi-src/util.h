@@ -31,4 +31,10 @@ int gen_session_id(char *out, size_t outlen);
 // 안전한 문자열 출력용 HTML 이스케이프(간단)
 void html_escape(const char *in, char *out, size_t outlen);
 
+// 트림
+void trim(char *s);
+
+// Windows: UTF-8 with BOM 방지용 안내(코드 아님)
+
 #endif
+//
